@@ -13,17 +13,19 @@
 #include <stdlib.h>
 
 struct context {
-    unsigned long rsp;
-    unsigned long rbp;
-    unsigned long rip;
-    unsigned long rbx;
-    unsigned long r12;
-    unsigned long r13;
-    unsigned long r14;
-    unsigned long r15;
+    // Our register
+    unsigned long sp;
+    unsigned long tp;
+    unsigned long ra;
+    unsigned long pc;
+    unsigned long a0;
+    unsigned long a1;
+    unsigned long a2;
+    unsigned long a3;
 };
 
 struct task_struct {
+    // Our PC Block
     struct context *context;
     void (*func)();
 };
@@ -32,68 +34,80 @@ struct task_struct *current;
 
 void print_context( struct context *ctx)
 {
-    printf("rsp: %p\n", ctx->rsp);
-    printf("rbp: %p\n", ctx->rbp);
-    printf("rip: %p\n", ctx->rip);
-    printf("rbx: %p\n", ctx->rbx);
-    printf("r12: %p\n", ctx->r12);
-    printf("r13: %p\n", ctx->r13);
-    printf("r14: %p\n", ctx->r14);
-    printf("r15: %p\n", ctx->r15);
+    printf("sp: %p\n", ctx->sp);
+    printf("tp: %p\n", ctx->tp);
+    printf("ra: %p\n", ctx->ra);
+    printf("a0: %p\n", ctx->a0);
+    printf("a1: %p\n", ctx->a1);
+    printf("a2: %p\n", ctx->a2);
+    printf("a3: %p\n", ctx->a3);
 }
 
-void switch_to_task(struct task_struct *next)
+// void switch_to_task(struct task_struct *next)
+// {
+//     printf("switching to task\n");
+//     struct task_struct *prev = current;
+//     current = next;
+//     switch_to(prev->context, next->context);
+// }
+
+// void switch_to(struct context *from, struct context *to)
+// {
+//     if (from == to)
+//         return;
+//     if (from != NULL)
+//         save_context(from);
+//     restore_context(to);
+// }
+
+// void restore_context( struct context *context)
+// {
+//     printf("restoring context\n");
+
+
+//     __asm__ __volatile__(
+//         "pushq %%rbp\n\t"
+//         "pushq %%r15\n\t"
+//         "pushq %%r14\n\t"
+//         "pushq %%r13\n\t"
+//         "pushq %%r12\n\t"
+//         "pushq %%rbx\n\t"
+//         "pushq %%rbp\n\t"
+//         "movq %%rsp, %0\n\t"
+//         "movq %1, %%rsp\n\t"
+//         "popq %%rbp\n\t"
+//         "ret\n\t"
+//         :
+//         : "r"(context->rsp), "r"(context->rsp)
+//         :);
+// }
+
+void get_PC(struct context *ctx)
 {
-    printf("switching to task\n");
-    struct task_struct *prev = current;
-    current = next;
-    switch_to(prev->context, next->context);
-}
-
-void switch_to(struct context *from, struct context *to)
-{
-    if (from == to)
-        return;
-    if (from != NULL)
-        save_context(from);
-    restore_context(to);
-}
-
-void restore_context( struct context *context)
-{
-    printf("restoring context\n");
-
-
-    __asm__ __volatile__(
-        "pushq %%rbp\n\t"
-        "pushq %%r15\n\t"
-        "pushq %%r14\n\t"
-        "pushq %%r13\n\t"
-        "pushq %%r12\n\t"
-        "pushq %%rbx\n\t"
-        "pushq %%rbp\n\t"
-        "movq %%rsp, %0\n\t"
-        "movq %1, %%rsp\n\t"
-        "popq %%rbp\n\t"
-        "ret\n\t"
+    // checkout a0 and get PC
+    asm volatile (
+        "sw a0, %0;"
+        "auipc a0, 0;"
+        "jalr zero, a0, 0;"
+        "sw a0, %1;"
+        : "=m" (ctx->a0), "=m" (ctx->pc) 
         :
-        : "r"(context->rsp), "r"(context->rsp)
-        :);
+        : "memory"
+    );
 }
 
 void save_context(struct context *ctx)
 {
+    // store the program counter 
+    // get_PC(ctx);
     // save registers
     asm volatile (
-        "movq %%rsp, %0;"
-        "movq %%rbp, %1;"
-        "movq %%rbx, %2;"
-        "movq %%r12, %3;"
-        "movq %%r13, %4;"
-        "movq %%r14, %5;"
-        "movq %%r15, %6;"
-        : "=m" (ctx->rsp), "=m" (ctx->rbp), "=m" (ctx->rbx), "=m" (ctx->r12),
-          "=m" (ctx->r13), "=m" (ctx->r14), "=m" (ctx->r15)
+        "sw sp, %0;"
+        "sw a1, %1;"
+        "sw a2, %2;"
+        "sw a3, %3;"
+        "sw ra, %4;"
+        : "=m" (ctx->a0), "=m" (ctx->a1), "=m" (ctx->a2), "=m" (ctx->a3), "=m" (ctx->ra)
         :
         : "memory"
     );
@@ -102,11 +116,10 @@ void save_context(struct context *ctx)
 void func1() {
     // fill up some registers
     __asm__ __volatile__(
-        "movq $0x1, %%rbx\n\t"
-        "movq $0x2, %%r12\n\t"
-        "movq $0x3, %%r13\n\t"
-        "movq $0x4, %%r14\n\t"
-        "movq $0x5, %%r15\n\t"
+        "addi a0, a0, 0x04\n\t"
+        "addi a1, a1, 0x08\n\t"
+        "addi a2, a2, 0x0b\n\t"
+        "addi a3, a3, 0x0f\n\t"
         :
         :);
     printf("func1: started\n");
@@ -121,41 +134,35 @@ void func3() {
 }
 
 int main() {
+    // Create space on the stack for the register files
     struct context *context1 = (struct context *)malloc(sizeof(struct context));
     struct context *context2 = (struct context *)malloc(sizeof(struct context));
     struct context *context3 = (struct context *)malloc(sizeof(struct context));
 
-    context1->rsp = (unsigned long)malloc(4096) + 4096;
-    context2->rsp = (unsigned long)malloc(4096) + 4096;
-    context3->rsp = (unsigned long)malloc(4096) + 4096;
+    // Assign space for the task and return the stack pointer
+    context1->sp = (unsigned long)malloc(4096) + 4096;
+    context2->sp = (unsigned long)malloc(4096) + 4096;
+    context3->sp = (unsigned long)malloc(4096) + 4096;
 
-    context1->rbp = context1->rsp;
-    context2->rbp = context2->rsp;
-    context3->rbp = context3->rsp;
+    context1->pc = 0;
+    context2->pc = 0;
+    context3->pc = 0;
 
-    context1->rip = (unsigned long)func1;
-    context2->rip = (unsigned long)func2;
-    context3->rip = (unsigned long)func3;
-
-    context1->rbx = 0;
-    context2->rbx = 0;
-    context3->rbx = 0;
-
-    context1->r12 = 0;
-    context2->r12 = 0;
-    context3->r12 = 0;
+    context1->a0 = 0;
+    context2->a0 = 0;
+    context3->a0 = 0;
     
-    context1->r13 = 0;
-    context2->r13 = 0;
-    context3->r13 = 0;
+    context1->a1 = 0;
+    context2->a1 = 0;
+    context3->a1 = 0;
 
-    context1->r14 = 0;
-    context2->r14 = 0;
-    context3->r14 = 0;
+    context1->a2 = 0;
+    context2->a2 = 0;
+    context3->a2 = 0;
 
-    context1->r15 = 0;
-    context2->r15 = 0;
-    context3->r15 = 0;
+    context1->a3 = 0;
+    context2->a3 = 0;
+    context3->a3 = 0;
 
     struct task_struct *task1 = (struct task_struct *)malloc(sizeof(struct task_struct));
     struct task_struct *task2 = (struct task_struct *)malloc(sizeof(struct task_struct));
@@ -170,13 +177,11 @@ int main() {
     task3->func = func3;
 
     current = task1;
-    current->func();
-    
     print_context(current->context);
+    current->func();
     struct context *tmp = (struct context *)malloc(sizeof(struct context));
     save_context(tmp);
     print_context(tmp);
-
     //switch_to_task(task2);
     //current->func();
     //switch_to_task(task3);
